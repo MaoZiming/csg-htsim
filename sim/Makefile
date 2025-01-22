@@ -50,6 +50,10 @@ htsim_bidir_swift:	$(OBJS) main_bidir_swift.o
 htsim_mpswift:	$(OBJS) main_mpswift.o
 	$(CC) $(CFLAGS) $(OBJS) main_mpswift.o -o htsim_mpswift
 
+# Rule to compile main_mpswift.o from mpswift.cpp
+# main_mpswift.o: mpswift.cpp $(HDRS)
+# 	$(CC) $(CFLAGS) $(INCLUDE) -c mpswift.cpp -o main_mpswift.o
+
 htsim_dumbell_strack:	$(OBJS) main_dumbell_strack.o
 	$(CC) $(CFLAGS) $(OBJS) main_dumbell_strack.o -o htsim_dumbell_strack
 

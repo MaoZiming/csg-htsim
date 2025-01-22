@@ -15,11 +15,12 @@
 #include "logfile.h"
 #include "loggers.h"
 #include "clock.h"
-#include "hpcc.h"
+#include "roce.h"
 #include "compositequeue.h"
 #include "firstfit.h"
 #include "topology.h"
 #include "connection_matrix.h"
+
 #include "fat_tree_topology.h"
 #include "fat_tree_switch.h"
 
@@ -56,6 +57,7 @@ int main(int argc, char **argv)
     int packet_size = 9000;
     uint32_t path_entropy_size = 10000000;
     uint32_t no_of_conns = 0, no_of_nodes = DEFAULT_NODES;
+    uint32_t tiers = 3;    // we support 2 and 3 tier fattrees
     double logtime = 0.25; // ms;
     stringstream filename(ios_base::out);
     simtime_picosec hop_latency = timeFromUs((uint32_t)1);
@@ -81,6 +83,7 @@ int main(int argc, char **argv)
     int end_time = 1000; // in microseconds
 
     char *tm_file = NULL;
+    char *topo_file = NULL;
 
     while (i < argc)
     {
@@ -106,6 +109,13 @@ int main(int argc, char **argv)
         {
             no_of_nodes = atoi(argv[i + 1]);
             cout << "no_of_nodes " << no_of_nodes << endl;
+            i++;
+        }
+        else if (!strcmp(argv[i], "-tiers"))
+        {
+            tiers = atoi(argv[i + 1]);
+            cout << "tiers " << tiers << endl;
+            assert(tiers == 2 || tiers == 3);
             i++;
         }
         else if (!strcmp(argv[i], "-queue_type"))
@@ -204,6 +214,12 @@ int main(int argc, char **argv)
             cout << "traffic matrix input file: " << tm_file << endl;
             i++;
         }
+        else if (!strcmp(argv[i], "-topo"))
+        {
+            topo_file = argv[i + 1];
+            cout << "FatTree topology input file: " << topo_file << endl;
+            i++;
+        }
         else if (!strcmp(argv[i], "-q"))
         {
             queuesize = atoi(argv[i + 1]);
@@ -285,6 +301,11 @@ int main(int argc, char **argv)
             {
                 cout << "Adaptive routing based on bandwidth utilization " << endl;
                 FatTreeSwitch::fn = &FatTreeSwitch::compare_bandwidth;
+            }
+            else if (!strcmp(argv[i + 1], "flowcount"))
+            {
+                cout << "Adaptive routing based on bandwidth utilization " << endl;
+                FatTreeSwitch::fn = &FatTreeSwitch::compare_flow_count;
             }
             else if (!strcmp(argv[i + 1], "pqb"))
             {
@@ -417,19 +438,21 @@ int main(int argc, char **argv)
 
     logfile.setStartTime(timeFromSec(0));
 
-    HPCCSinkLoggerSampling sinkLogger = HPCCSinkLoggerSampling(timeFromMs(logtime), eventlist);
+    RoceSinkLoggerSampling sinkLogger = RoceSinkLoggerSampling(timeFromMs(logtime), eventlist);
     if (log_sink)
     {
         logfile.addLogger(sinkLogger);
     }
-    HPCCTrafficLogger traffic_logger = HPCCTrafficLogger();
+    RoceTrafficLogger traffic_logger = RoceTrafficLogger();
     if (log_traffic)
     {
         logfile.addLogger(traffic_logger);
     }
 
-    HPCCSrc *hpccSrc;
-    HPCCSink *hpccSnk;
+    RoceSrc::setMinRTO(1000); // increase RTO to avoid spurious retransmits
+
+    RoceSrc *roceSrc;
+    RoceSink *roceSnk;
 
     Route *routeout, *routein;
 
@@ -445,8 +468,17 @@ int main(int argc, char **argv)
         qlf->set_sample_period(timeFromUs(10.0));
     }
 #ifdef FAT_TREE
-    FatTreeTopology *top = new FatTreeTopology(no_of_nodes, linkspeed, queuesize, qlf,
-                                               &eventlist, NULL, qt, hop_latency, switch_latency, snd_type);
+    FatTreeTopology *top;
+    if (topo_file)
+    {
+        top = FatTreeTopology::load(topo_file, qlf, eventlist, queuesize, qt, snd_type);
+    }
+    else
+    {
+        FatTreeTopology::set_tiers(tiers);
+        top = new FatTreeTopology(no_of_nodes, linkspeed, queuesize, qlf,
+                                  &eventlist, NULL, qt, hop_latency, switch_latency, snd_type);
+    }
 #endif
 
 #ifdef OV_FAT_TREE
@@ -522,7 +554,7 @@ int main(int argc, char **argv)
     // list <const Route*> routes;
 
     all_conns = conns->getAllConnections();
-    vector<HPCCSrc *> hpcc_srcs;
+    vector<RoceSrc *> roce_srcs;
 
     for (size_t c = 0; c < all_conns->size(); c++)
     {
@@ -556,48 +588,48 @@ int main(int argc, char **argv)
         connection *crt = all_conns->at(c);
         int src = crt->src;
         int dest = crt->dst;
-        // cout << "Connection " << crt->src << "->" <<crt->dst << " starting at " << crt->start << " size " << crt->size << endl;
+        cout << "Connection " << crt->src << "->" << crt->dst << " starting at " << timeAsUs(crt->start) << " size " << crt->size << endl;
 
-        hpccSrc = new HPCCSrc(NULL, NULL, eventlist, linkspeed);
+        roceSrc = new RoceSrc(NULL, NULL, eventlist, linkspeed);
 
-        hpcc_srcs.push_back(hpccSrc);
-        hpccSrc->set_dst(dest);
+        roce_srcs.push_back(roceSrc);
+        roceSrc->set_dst(dest);
 
         if (crt->size > 0)
         {
-            hpccSrc->set_flowsize(crt->size);
+            roceSrc->set_flowsize(crt->size);
         }
 
         if (crt->flowid)
         {
-            hpccSrc->set_flowid(crt->flowid);
+            roceSrc->set_flowid(crt->flowid);
             assert(flowmap.find(crt->flowid) == flowmap.end()); // don't have dups
-            flowmap[crt->flowid] = hpccSrc;
+            flowmap[crt->flowid] = roceSrc;
         }
 
         if (crt->trigger)
         {
             Trigger *trig = conns->getTrigger(crt->trigger, eventlist);
-            trig->add_target(*hpccSrc);
+            trig->add_target(*roceSrc);
         }
         if (crt->send_done_trigger)
         {
             Trigger *trig = conns->getTrigger(crt->send_done_trigger, eventlist);
-            hpccSrc->set_end_trigger(*trig);
+            roceSrc->set_end_trigger(*trig);
         }
 
-        hpccSnk = new HPCCSink();
+        roceSnk = new RoceSink();
 
-        hpccSrc->setName("HPCC_" + ntoa(src) + "_" + ntoa(dest));
+        roceSrc->setName("Roce_" + ntoa(src) + "_" + ntoa(dest));
 
-        logfile.writeName(*hpccSrc);
+        logfile.writeName(*roceSrc);
 
-        hpccSnk->set_src(src);
+        roceSnk->set_src(src);
 
-        hpccSnk->setName("HPCC_sink_" + ntoa(src) + "_" + ntoa(dest));
-        logfile.writeName(*hpccSnk);
+        roceSnk->setName("Roce_sink_" + ntoa(src) + "_" + ntoa(dest));
+        logfile.writeName(*roceSnk);
 
-        ((HostQueue *)top->queues_ns_nlp[src][top->HOST_POD_SWITCH(src)][0])->addHostSender(hpccSrc);
+        ((HostQueue *)top->queues_ns_nlp[src][top->HOST_POD_SWITCH(src)][0])->addHostSender(roceSrc);
 
         if (route_strategy != SINGLE_PATH && route_strategy != ECMP_FIB)
         {
@@ -618,25 +650,26 @@ int main(int argc, char **argv)
 
             if (crt->start != TRIGGER_START && start_delta > 0)
             {
-                crt->start += timeFromUs(drand() * start_delta);
+                crt->start += timeFromUs(drand48() * start_delta);
+                cout << "Start is " << timeAsUs(crt->start) << endl;
             }
-            hpccSrc->connect(srctotor, dsttotor, *hpccSnk, crt->start);
+            roceSrc->connect(srctotor, dsttotor, *roceSnk, crt->start);
 
             // register src and snk to receive packets from their respective TORs.
             assert(top->switches_lp[top->HOST_POD_SWITCH(src)]);
             assert(top->switches_lp[top->HOST_POD_SWITCH(src)]);
-            top->switches_lp[top->HOST_POD_SWITCH(src)]->addHostPort(src, hpccSrc->flow_id(), hpccSrc);
-            top->switches_lp[top->HOST_POD_SWITCH(dest)]->addHostPort(dest, hpccSrc->flow_id(), hpccSnk);
+            top->switches_lp[top->HOST_POD_SWITCH(src)]->addHostPort(src, roceSrc->flow_id(), roceSrc);
+            top->switches_lp[top->HOST_POD_SWITCH(dest)]->addHostPort(dest, roceSrc->flow_id(), roceSnk);
         }
         else
         {
             int choice = rand() % net_paths[src][dest]->size();
             routeout = new Route(*(net_paths[src][dest]->at(choice)));
-            routeout->add_endpoints(hpccSrc, hpccSnk);
+            routeout->add_endpoints(roceSrc, roceSnk);
 
             routein = new Route(*top->get_bidir_paths(dest, src, false)->at(choice));
-            routein->add_endpoints(hpccSnk, hpccSrc);
-            hpccSrc->connect(routeout, routein, *hpccSnk, timeFromUs((uint32_t)rand() % 20));
+            routein->add_endpoints(roceSnk, roceSrc);
+            roceSrc->connect(routeout, routein, *roceSnk, timeFromUs((uint32_t)rand() % 20));
         }
 
         path_refcounts[src][dest]--;
@@ -668,7 +701,7 @@ int main(int argc, char **argv)
 
         if (log_sink)
         {
-            sinkLogger.monitorSink(hpccSnk);
+            sinkLogger.monitorSink(roceSnk);
         }
     }
 
@@ -695,10 +728,10 @@ int main(int argc, char **argv)
 
     cout << "Done" << endl;
     int new_pkts = 0, rtx_pkts = 0;
-    for (size_t ix = 0; ix < hpcc_srcs.size(); ix++)
+    for (size_t ix = 0; ix < roce_srcs.size(); ix++)
     {
-        new_pkts += hpcc_srcs[ix]->_new_packets_sent;
-        rtx_pkts += hpcc_srcs[ix]->_rtx_packets_sent;
+        new_pkts += roce_srcs[ix]->_new_packets_sent;
+        rtx_pkts += roce_srcs[ix]->_rtx_packets_sent;
     }
     cout << "New: " << new_pkts << " Rtx: " << rtx_pkts << endl;
 

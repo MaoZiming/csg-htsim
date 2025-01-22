@@ -7,7 +7,7 @@ INCLUDE= -I/$(CRT)/.. -I$(CRT)
 LIB=-L..
 DEPS=../libhtsim.a
 
-all:	htsim_tcp htsim_ndp htsim_roce htsim_swift htsim_hpcc htsim_eqds
+all:	htsim_tcp htsim_ndp htsim_roce htsim_swift htsim_hpcc htsim_eqds htsim_uccl
 
 
 htsim_tcp: main_tcp.o firstfit.o ../libhtsim.a vl2_topology.o fat_tree_topology.o fat_tree_switch.o dragon_fly_topology.o bcube_topology.o connection_matrix.o oversubscribed_fat_tree_topology.o shortflows.o multihomed_fat_tree_topology.o star_topology.o
@@ -23,6 +23,9 @@ htsim_eqds: main_eqds.o firstfit.o ../libhtsim.a vl2_topology.o fat_tree_topolog
 
 htsim_roce: main_roce.o firstfit.o ../libhtsim.a vl2_topology.o fat_tree_topology.o bcube_topology.o connection_matrix.o oversubscribed_fat_tree_topology.o shortflows.o multihomed_fat_tree_topology.o star_topology.o fat_tree_switch.o
 	$(CC) $(CFLAGS) firstfit.o main_roce.o vl2_topology.o fat_tree_topology.o fat_tree_switch.o bcube_topology.o connection_matrix.o oversubscribed_fat_tree_topology.o shortflows.o star_topology.o multihomed_fat_tree_topology.o $(LIB) -lhtsim -o htsim_roce
+
+htsim_uccl: main_uccl.o firstfit.o ../libhtsim.a vl2_topology.o fat_tree_topology.o bcube_topology.o connection_matrix.o oversubscribed_fat_tree_topology.o shortflows.o multihomed_fat_tree_topology.o star_topology.o fat_tree_switch.o
+	$(CC) $(CFLAGS) firstfit.o main_uccl.o vl2_topology.o fat_tree_topology.o fat_tree_switch.o bcube_topology.o connection_matrix.o oversubscribed_fat_tree_topology.o shortflows.o star_topology.o multihomed_fat_tree_topology.o $(LIB) -lhtsim -o htsim_uccl
 
 htsim_hpcc: main_hpcc.o firstfit.o ../libhtsim.a vl2_topology.o fat_tree_topology.o bcube_topology.o connection_matrix.o oversubscribed_fat_tree_topology.o shortflows.o multihomed_fat_tree_topology.o star_topology.o fat_tree_switch.o
 	$(CC) $(CFLAGS) firstfit.o main_hpcc.o vl2_topology.o fat_tree_topology.o fat_tree_switch.o bcube_topology.o connection_matrix.o oversubscribed_fat_tree_topology.o shortflows.o star_topology.o multihomed_fat_tree_topology.o $(LIB) -lhtsim -o htsim_hpcc
@@ -40,6 +43,9 @@ main_ndp.o: main_ndp.cpp ${DEPS}
 
 main_roce.o: main_roce.cpp ${DEPS}
 	$(CC) $(INCLUDE) $(CFLAGS) -c main_roce.cpp
+
+main_uccl.o: main_uccl.cpp ${DEPS}
+	$(CC) $(INCLUDE) $(CFLAGS) -c main_uccl.cpp
 
 main_hpcc.o: main_hpcc.cpp ${DEPS}
 	$(CC) $(INCLUDE) $(CFLAGS) -c main_hpcc.cpp 
