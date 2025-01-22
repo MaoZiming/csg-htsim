@@ -4,6 +4,9 @@
 
 ./htsim_swift -conns 1024 -nodes 1024 -tm connection_matrices/perm_1024n_1024c_0u_2000000b.cm -end 2000 -mtu 4000 -q 200 -flowsize 2000000 > swift.out
 
+./htsim_swift -conns 1024 -nodes 1024 -tm connection_matrices/perm_1024n_1024c_0u_2000000b.cm -end 2000 -mtu 4000 -q 200 -flowsize 2000000 -subflows 4 > swift_subflow.out
+
 python3 plot_flows.py roce
 python3 plot_flows.py ndp
 python3 plot_flows.py swift
+python3 plot_flows.py swift_subflow
